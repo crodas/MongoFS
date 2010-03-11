@@ -52,11 +52,24 @@ do_stream_copy($remotefile, $tmpfile);
 print "Comparing files\n\t";
 echo (sha1_file($localfile) == sha1_file($tmpfile)) ? "OK\n" : "FAILED\n";
 
+print "Comparing offsets\n\t";
+echo (partial_reading($localfile) == partial_reading($remotefile)) ? "OK\n" : "FAILED\n";
+
 
 /* delete files  */
 unlink("mongo://test_video_2.flv");
 unlink($tmpfile);
 
+function partial_reading($file)
+{
+    $fp = fopen($file, "r");
+    fseek($fp, -100, SEEK_END);
+    $string = fread($fp, 100);
+    fclose($fp);
+    var_dump(array($file => $string));
+
+    return $string;
+}
 
 function do_stream_copy($source, $dest) 
 {

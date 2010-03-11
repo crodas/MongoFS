@@ -399,7 +399,7 @@ class MongoFS
             }
             break;
         case SEEK_END:
-            $offset += $this->size+1;
+            $offset += $this->size;
             if ($offset > $size) {
                 return false;
             }
