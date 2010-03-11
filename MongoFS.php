@@ -264,6 +264,26 @@ class MongoFS
     }
     // }}}
 
+    final function stream_read($bytes)
+    {
+        $cache     = & $this->cache;
+        $offset    = & $this->cache_offset; 
+        $chunksize = & $this->chunksize;
+        $cachesize = & $this->cache_size;
+        $wrote     = 0;
+
+        if ($offset + $bytes >= $chunksize) {
+            $data = substr($cache, $offset);
+            $this->stream_seek($chunksize * ($this->chunk_id+1), SEEK_SET);
+        } else {
+            $data = substr($cache, $offset, $bytes);
+            $offset += $bytes; 
+            $this->offset += $bytes;
+        }
+
+        return $data;
+    }
+
     // bool mongo_fs_open($filename) {{{
     /**
      *  Open a File stored on MongoDB
@@ -283,12 +303,13 @@ class MongoFS
             return false;
         }
 
+
+        $filename = substr($filename, $pos + 3);
+
         if ($filename[0] != '/') {
             $filename = "/{$filename}";
         }
 
-
-        $filename = substr($filename, $pos + 3);
         $filter   = array(
             'filename' => $filename
         );
@@ -392,7 +413,9 @@ class MongoFS
 
         if ($chunk_new != $chunk_cur) {
             /* Save the old chunk, if any */
-            $this->stream_flush();
+            if ($this->mode != self::OP_READ) {
+                $this->stream_flush();
+            }
 
             /* Delete current cursor and re-query it */
             $this->cursor->reset();
@@ -408,9 +431,8 @@ class MongoFS
                 $this->chunk      = null;
                 $this->total_chunks++;
             } else {
-                for ($i=0; $i < $chunk_new+1; $i++) {
-                    $this->cursor->next();
-                }
+                $this->cursor   = $this->chunks->find(array("files_id" => $this->file_id, "n" => $chunk_new));
+                $this->cursor->next();
                 $this->chunk      = $this->cursor->current();
                 $this->cache      = $this->chunk['data']->bin;
                 $this->cache_size = strlen($this->cache);
@@ -435,7 +457,6 @@ class MongoFS
     final function stream_flush()
     {
         if ($this->mode == self::OP_READ) {
-            $this->set_error("Can't flush cache on READ mode");
             return false;
         }
         if ($this->chunk_id < 0 || !$this->cache_dirty) {
@@ -508,8 +529,6 @@ class MongoFS
                 'md5' => $result['md5'],
             ),
         );
-
-        var_dump($document);
 
         $this->grid->update(array('_id' => $this->file_id), $document);
         return true;

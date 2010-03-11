@@ -40,16 +40,36 @@ require "MongoFS.php";
 /* Ejemplo */
 MongoFS::connect("mongofs", "localhost");
 
-$fi = fopen("/home/crodas/Desktop/1266962267587.flv", "r");
-$fp = fopen("mongo://test_video_2.flv", "w");
+$localfile  = "/home/crodas/Desktop/1266962267587.flv";
+$remotefile = "mongo://test_video_2.flv";
+$tmpfile    = "/tmp/mongofs-test";
 
-while ($data = fread($fi, 8096)) {
-    fwrite($fp, $data);
+print "Uploading file to MongoDB\n";
+//do_stream_copy($localfile, $remotefile);
+print "Downloading file\n";
+do_stream_copy($remotefile, $tmpfile);
+
+print "Comparing files\n\t";
+echo (sha1_file($localfile) == sha1_file($tmpfile)) ? "OK\n" : "FAILED\n";
+
+
+/* delete files  */
+//unlink("mongo://test_video_2.flv");
+//unlink($tmpfile);
+
+
+function do_stream_copy($source, $dest) 
+{
+    $fi = fopen($source, "r");
+    $fp = fopen($dest, "w");
+    while ($data = fread($fi, 8096)) {
+        fwrite($fp, $data);
+    }
+    fclose($fp);
+    fclose($fi);
 }
-fclose($fp);
-fclose($fi);
 
-unlink("mongo://test_video_2.flv");
+
 
 /*
  * Local variables:
