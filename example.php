@@ -45,7 +45,7 @@ $remotefile = "mongo://test_video_2.flv";
 $tmpfile    = "/tmp/mongofs-test";
 
 print "Uploading file to MongoDB\n";
-//do_stream_copy($localfile, $remotefile);
+do_stream_copy($localfile, $remotefile);
 print "Downloading file\n";
 do_stream_copy($remotefile, $tmpfile);
 
@@ -54,8 +54,8 @@ echo (sha1_file($localfile) == sha1_file($tmpfile)) ? "OK\n" : "FAILED\n";
 
 
 /* delete files  */
-//unlink("mongo://test_video_2.flv");
-//unlink($tmpfile);
+unlink("mongo://test_video_2.flv");
+unlink($tmpfile);
 
 
 function do_stream_copy($source, $dest) 
