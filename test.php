@@ -135,7 +135,7 @@ function stream_cmp($file1, $file2, $exhaustive=false)
 
     $bytes = $exhaustive ? 1 : 8096;
 
-    while (!feof($f2) && feof($f1)) {
+    while (!feof($f2) && !feof($f1)) {
         $data2 = fread($f2, $bytes);
         $data1 = fread($f1, $bytes);
         if ($data1 != $data2) {
