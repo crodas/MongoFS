@@ -43,7 +43,7 @@ MongoFS::connect("mongofs", "localhost");
 
 try {
     $localfile  = generate_test_file();
-    $remotefile = "gridfs://test_video_2.flv";
+    $remotefile = "gridfs://testing.bin";
     $tmpfile    = tempnam("/tmp/", "mongofs");
 
     print "Uploading file to MongoDB\n\t";
@@ -107,9 +107,9 @@ function partial_writing($file1, $file2)
 
     $max = filesize($file1);
 
-    for ($i=0; $i < 3000; $i++) {
+    for ($i=0; $i < 5000; $i++) {
         /* random offset */
-        $offset = rand(0, $max-80); /* Append more chunks not supported YET*/
+        $offset = rand(0, $max+100); 
         fseek($fp, $offset, SEEK_SET);
         fseek($fi, $offset, SEEK_SET);
        
@@ -123,21 +123,27 @@ function partial_writing($file1, $file2)
     fclose($fp);
     fclose($fi);
 
+    echo "Comparing remote and local files: ";
+
     return stream_cmp($file1, $file2);
 }
 
-function stream_cmp($file1, $file2)
+function stream_cmp($file1, $file2, $exhaustive=false)
 {
     $f1 = fopen($file1, "r");
     $f2 = fopen($file2, "r");
 
-    while ($data2 = fread($f2, 8096)) {
-        $data1 = fread($f1, strlen($data2));
+    $bytes = $exhaustive ? 1 : 8096;
+
+    while (!feof($f2) && feof($f1)) {
+        $data2 = fread($f2, $bytes);
+        $data1 = fread($f1, $bytes);
         if ($data1 != $data2) {
             throw new Exception("File mismatch at ".ftell($f1).", ".ftell($f2));
         }
     }
-    return filesize($file1) == ftell($f1);
+
+    return feof($f2) === feof($f1);
 }
 
 function do_stream_copy($source, $dest) 
@@ -159,9 +165,9 @@ function generate_test_file()
     if (!$fp) {
         throw new Exception("Error while creating testing file");
     }
-    /* 16MB file */
-    for ($i=0; $i < 800000; $i++) {
-        fwrite($fp, sha1($i, false));
+    $size =rand(40000, 800000);
+    for ($i=0; $i < $size; $i++) {
+        fwrite($fp, sha1(($i * $size), false));
     }
     fclose($fp);
     echo "Done\n";

@@ -78,7 +78,7 @@ class MongoFS
     protected $mode;
     protected $size;
     protected $file_id;
-    protected $chunksize;
+    protected $chunk_size;
          
     /* IO Cache (read/write) */
     protected $cache;
@@ -264,18 +264,23 @@ class MongoFS
     }
     // }}}
 
+    // stream_read(int $bytes) {{{
+    /**
+     *  stream_read
+     *
+     */
     final function stream_read($bytes)
     {
-        $cache     = & $this->cache;
-        $offset    = & $this->cache_offset; 
-        $chunksize = & $this->chunksize;
-        $cachesize = & $this->cache_size;
-        $data      = "";
+        $cache      = & $this->cache;
+        $offset     = & $this->cache_offset; 
+        $chunk_size = $this->chunk_size;
+        $cache_size = & $this->cache_size;
+        $data       = "";
 
-        if ($offset + $bytes >= $chunksize) {
+        if ($offset + $bytes >= $chunk_size) {
             $data  .= substr($cache, $offset);
             $bytes -= strlen($data);
-            $this->stream_seek($chunksize * ($this->chunk_id+1), SEEK_SET);
+            $this->stream_seek($chunk_size * ($this->chunk_id+1), SEEK_SET);
         }
 
         if ($bytes > 0) {
@@ -287,6 +292,7 @@ class MongoFS
 
         return $data;
     }
+    // }}}
 
     // bool mongo_fs_open($filename) {{{
     /**
@@ -355,7 +361,7 @@ class MongoFS
         /* Load file metadata. */
         $this->filename  = $attr->file['filename'];
         $this->size      = $attr->file['length'];
-        $this->chunksize = $attr->file['chunkSize'];
+        $this->chunk_size = $attr->file['chunkSize'];
         $this->file_id   = $attr->file['_id'];
 
         /* load grid and chunks references */
@@ -387,7 +393,7 @@ class MongoFS
                 /* if the current chunk is not synced */
                 /* yet we might want to move to the next chunk */
                 /* (of course this function call flush() ) */
-                $size += $this->chunksize;
+                $size += $this->chunk_size;
             }
         }
         switch ($whence) {
@@ -412,7 +418,7 @@ class MongoFS
             return false;
         }
         
-        $chunk_new = floor($offset / $this->chunksize);
+        $chunk_new = floor($offset / $this->chunk_size);
         $chunk_cur = $this->chunk_id;
 
         if ($chunk_new != $chunk_cur) {
@@ -424,18 +430,18 @@ class MongoFS
             /* Delete current cursor and re-query it */
             $this->cursor->reset();
 
-            if ($this->total_chunks < $chunk_new+1) {
+            $this->cursor = $this->chunks->find(array("files_id" => $this->file_id, "n" => $chunk_new));
+            if ($this->cursor->count() == 0) {
                 /* The requested chunk doesn't exits */
                 if ($this->mode == self::OP_READ) {
                     $this->set_error("Fatal error while reading file chunk {$chunk_new}");
                     return false;
                 }
-                $this->cache      = str_repeat("X", $this->chunksize);
+                $this->cache      = str_repeat("X", $this->chunk_size);
                 $this->cache_size = 0;
                 $this->chunk      = null;
                 $this->total_chunks++;
             } else {
-                $this->cursor   = $this->chunks->find(array("files_id" => $this->file_id, "n" => $chunk_new));
                 $this->cursor->next();
                 $this->chunk      = $this->cursor->current();
                 $this->cache      = $this->chunk['data']->bin;
@@ -444,7 +450,7 @@ class MongoFS
             /* New Chunk ID */
             $this->chunk_id = $chunk_new; 
         }
-        $this->cache_offset = $offset%$this->chunksize;
+        $this->cache_offset = $offset%$this->chunk_size;
         $this->offset       = $offset;
 
         return true;
@@ -478,7 +484,7 @@ class MongoFS
             );
 
             /* save the current chunk */
-            $this->chunks->insert($document);
+            $this->chunks->insert($document, true);
             $this->chunk = $document;
             
             $this->size += $this->cache_size;
@@ -495,7 +501,7 @@ class MongoFS
             $this->chunks->update($filter, $document);
 
             if ($this->total_chunks == $this->chunk_id+1) {
-                $this->size = ($this->chunk_id-1) * $this->chunksize + $this->cache_size;
+                $this->size = ($this->chunk_id) * $this->chunk_size + $this->cache_size;
             }
         }
 
@@ -526,10 +532,22 @@ class MongoFS
             "root" => "fs",
         );
         $result = $this->_getConnection()->command( $command );
+
+        if (true) {
+            /* silly test to see if we count the size correctly */
+            /* when it becames more stable I'll remove it */
+            $size = $this->chunks->group(array(), array("size" => 0), new MongoCode("function (b,a) { a.size += b.data.len-4; }"), array("files_id" => $this->file_id)); 
+
+            if ($size['retval'][0]['size'] != $this->size) {
+                print_r(array($size['retval'][0]['size'], $this->size));
+            }
+        }
+
         if ($result['ok'] != 1) {
             $this->set_error("Imposible to get MD5 from MongoDB".$result['errmsg']);
             return false;
         }
+
         $document = array(
             '$set' => array(
                 'length' => $this->size,
@@ -552,23 +570,23 @@ class MongoFS
             $this->set_error("Impossible to write in READ mode");
             return false;
         }
-        $cache     = & $this->cache;
-        $offset    = & $this->cache_offset; 
-        $chunksize = & $this->chunksize;
-        $cachesize = & $this->cache_size;
-        $data_size = strlen($data);
-        $wrote     = 0;
+        $cache      = & $this->cache;
+        $offset     = & $this->cache_offset; 
+        $chunk_size = $this->chunk_size;
+        $cache_size = & $this->cache_size;
+        $data_size  = strlen($data);
+        $wrote      = 0;
 
-        if ($offset + $data_size >= $chunksize) {
-            $wrote        += $chunksize - $cachesize;
+        if ($offset + $data_size > $chunk_size) {
+            $wrote        += $chunk_size - $cache_size;
             $cache         = substr($cache, 0, $offset);
             $cache        .= substr($data, 0, $wrote);
-            $cachesize     = strlen($cache);
-            $this->offset += $chunksize -  $cachesize;
+            $cache_size    = strlen($cache);
+            $this->offset += $chunk_size -  $cache_size;
 
             /* Move to the next chunk, stream_seek */
             /* will automatically sync it to mongodb */
-            if (!$this->stream_seek($chunksize * ($this->chunk_id+1), SEEK_SET)) {
+            if (!$this->stream_seek($chunk_size * ($this->chunk_id+1), SEEK_SET)) {
                 throw new MongoException("Offset falied");
             }
 
@@ -585,8 +603,8 @@ class MongoFS
             $this->offset += $data_size;
         }
 
-        if($offset > $cachesize) {
-            $cachesize = $offset;
+        if($offset > $cache_size) {
+            $cache_size = $offset;
         }
 
         /* flag the current cache as dirty */
@@ -635,7 +653,7 @@ class MongoFS
     final function unlink($file)
     {
         /* Set a fake mode, in order to see if the file exists */
-        $this->mode = self::OP_WRITE;
+        $this->mode = self::OP_READ;
 
         /* Open file or create */
         if (!$this->mongo_fs_open($file)) {
@@ -668,6 +686,18 @@ class MongoFS
         return $db->getGridFS()->storeFile($filename, array('filename' => $name));
     }
     // }}}
+
+    function url_stat($file)
+    {
+        /* Set a fake mode, in order to see if the file exists */
+        $this->mode = self::OP_READ;
+
+        /* Open file or create */
+        if (!$this->mongo_fs_open($file)) {
+            return false;
+        }
+        return $this->stream_stat();
+    }
 
 }
 
