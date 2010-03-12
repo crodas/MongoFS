@@ -40,53 +40,132 @@ require "MongoFS.php";
 /* Ejemplo */
 MongoFS::connect("mongofs", "localhost");
 
-$localfile  = "/home/crodas/Desktop/1266962267587.flv";
-$remotefile = "gridfs://test_video_2.flv";
-$tmpfile    = "/tmp/mongofs-test";
 
 try {
+    $localfile  = generate_test_file();
+    $remotefile = "gridfs://test_video_2.flv";
+    $tmpfile    = tempnam("/tmp/", "mongofs");
+
     print "Uploading file to MongoDB\n\t";
     do_stream_copy($localfile, $remotefile);
     print "OK\n";
 
     print "Downloading file\n\t";
     do_stream_copy($remotefile, $tmpfile);
-    /* Copy it again */
-    do_stream_copy($remotefile, $tmpfile);
     print "OK\n";
 
-    print "Comparing files\n\t";
-    echo (sha1_file($localfile) == sha1_file($tmpfile)) ? "OK\n" : "FAILED\n";
+    print "Comparing local and remote files\n\t";
+    echo stream_cmp($tmpfile, $remotefile) ? "OK\n" : "FAILED\n";
 
-    print "Comparing offsets\n\t";
-    echo (partial_reading($localfile) == partial_reading($remotefile)) ? "OK\n" : "FAILED\n";
+    print "Random reading\n\t";
+    echo partial_reading($localfile, $remotefile) ? "OK\n" : "FAILED\n";
 
-    /* delete files  */
-    unlink($remotefile);
-    unlink($tmpfile);
+    print "Random writing\n\t";
+    echo partial_writing($localfile, $remotefile) ? "OK\n" : "FAILED\n";
+
 } catch (Exception $e) {
     echo "FAILED\n";
+    echo "\t".$e->getMessage()."\n";
 }
 
-function partial_reading($file)
-{
-    $fp = fopen($file, "r");
-    fseek($fp, -100, SEEK_END);
-    $string = fread($fp, 100);
-    fclose($fp);
+/* delete files  */
+unlink($remotefile);
+unlink($tmpfile);
+unlink($localfile);
 
-    return $string;
+function partial_reading($file1, $file2)
+{
+    $fi = fopen($file1, "r");
+    $fp = fopen($file2, "r");
+
+    $max = filesize($file1);
+
+    for ($i=0; $i < 3000; $i++) {
+        /* random offset */
+        $offset = rand(0, $max);
+        fseek($fp, $offset, SEEK_SET);
+        fseek($fi, $offset, SEEK_SET);
+       
+        /* random data */
+        $bytes = rand(1, 1024);
+        $data1 = fread($fp, $bytes);
+        $data2 = fread($fi, $bytes);
+        if ($data1 !== $data2) {
+            return false;
+        }
+    }
+    fclose($fp);
+    fclose($fi);
+
+    return true;
+}
+
+function partial_writing($file1, $file2)
+{
+    $fi = fopen($file1, "r+");
+    $fp = fopen($file2, "r+");
+
+    $max = filesize($file1);
+
+    for ($i=0; $i < 3000; $i++) {
+        /* random offset */
+        $offset = rand(0, $max-80); /* Append more chunks not supported YET*/
+        fseek($fp, $offset, SEEK_SET);
+        fseek($fi, $offset, SEEK_SET);
+       
+        /* random data */
+        $data = sha1(microtime(),false);
+
+        fwrite($fi, $data);
+        fwrite($fp, $data);
+    }
+
+    fclose($fp);
+    fclose($fi);
+
+    return stream_cmp($file1, $file2);
+}
+
+function stream_cmp($file1, $file2)
+{
+    $f1 = fopen($file1, "r");
+    $f2 = fopen($file2, "r");
+
+    while ($data2 = fread($f2, 8096)) {
+        $data1 = fread($f1, strlen($data2));
+        if ($data1 != $data2) {
+            throw new Exception("File mismatch at ".ftell($f1).", ".ftell($f2));
+        }
+    }
+    return filesize($file1) == ftell($f1);
 }
 
 function do_stream_copy($source, $dest) 
 {
     $fi = fopen($source, "r");
     $fp = fopen($dest, "w");
-    while ($data = fread($fi, 8096)) {
+    while ($data = fread($fi, 7000)) {
         fwrite($fp, $data);
     }
     fclose($fp);
     fclose($fi);
+}
+
+function generate_test_file()
+{
+    echo "Creating random file\n\t";
+    $fname = tempnam("/tmp/", "mongofs");
+    $fp    = fopen($fname, "w");
+    if (!$fp) {
+        throw new Exception("Error while creating testing file");
+    }
+    /* 16MB file */
+    for ($i=0; $i < 800000; $i++) {
+        fwrite($fp, sha1($i, false));
+    }
+    fclose($fp);
+    echo "Done\n";
+    return $fname;
 }
 
 /*

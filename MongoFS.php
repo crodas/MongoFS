@@ -270,14 +270,18 @@ class MongoFS
         $offset    = & $this->cache_offset; 
         $chunksize = & $this->chunksize;
         $cachesize = & $this->cache_size;
-        $wrote     = 0;
+        $data      = "";
 
         if ($offset + $bytes >= $chunksize) {
-            $data = substr($cache, $offset);
+            $data  .= substr($cache, $offset);
+            $bytes -= strlen($data);
             $this->stream_seek($chunksize * ($this->chunk_id+1), SEEK_SET);
-        } else {
-            $data = substr($cache, $offset, $bytes);
-            $offset += $bytes; 
+        }
+
+        if ($bytes > 0) {
+            $data  .= substr($cache, $offset, $bytes);
+            $bytes = strlen($data);
+            $offset       += $bytes; 
             $this->offset += $bytes;
         }
 
@@ -459,9 +463,11 @@ class MongoFS
         if ($this->mode == self::OP_READ) {
             return false;
         }
+
         if ($this->chunk_id < 0 || !$this->cache_dirty) {
             return true;
-        }
+        } 
+
         $cache = substr($this->cache, 0, $this->cache_size);
 
         if ($this->chunk == null) {
@@ -483,9 +489,9 @@ class MongoFS
                 ),
             );
             $filter = array(
-                'file_id' => $this->file_id,
-                'n' => $this->chunk_id,
+                '_id' => $this->chunk['_id']
             );
+
             $this->chunks->update($filter, $document);
 
             if ($this->total_chunks == $this->chunk_id+1) {
@@ -514,6 +520,7 @@ class MongoFS
         if ($this->mode == self::OP_READ) {
             return true;
         }
+        $this->stream_flush();
         $command = array(
             "filemd5" => $this->file_id, 
             "root" => "fs",
@@ -581,7 +588,6 @@ class MongoFS
         if($offset > $cachesize) {
             $cachesize = $offset;
         }
-    
 
         /* flag the current cache as dirty */
         $this->cache_dirty = true;
@@ -614,7 +620,7 @@ class MongoFS
     /**
      *  Return stat info about the current file
      */
-    final function stream_fstat()
+    final function stream_stat()
     {
         return array(
             'size' => $this->size,
@@ -666,7 +672,7 @@ class MongoFS
 }
 
 /* Register the STREAM class */
-stream_wrapper_register("mongo", "MongoFS")
+stream_wrapper_register("gridfs", "MongoFS")
     or die("Failed to register protocol");
 
 /*
