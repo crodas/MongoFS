@@ -398,19 +398,22 @@ class MongoFS
         }
         switch ($whence) {
         case SEEK_SET:
-            if ($offset > $size+1 || $offset < 0) {
+            if ($offset > $size || $offset < 0) {
+                $this->set_error("Can't offset to {$offset} (Filesize: {$size})");
                 return false;
             }
             break;
         case SEEK_CUR:
             $offset += $this->offset;
-            if ($offset > $size+1) {
+            if ($offset > $size) {
+                $this->set_error("Can't offset to {$offset} (Filesize: {$size})");
                 return false;
             }
             break;
         case SEEK_END:
             $offset += $this->size;
             if ($offset > $size) {
+                $this->set_error("Can't offset to {$offset} (Filesize: {$size})");
                 return false;
             }
             break;
@@ -577,12 +580,18 @@ class MongoFS
         $data_size  = strlen($data);
         $wrote      = 0;
 
-        if ($offset + $data_size > $chunk_size) {
-            $wrote        += $chunk_size - $cache_size;
-            $cache         = substr($cache, 0, $offset);
-            $cache        .= substr($data, 0, $wrote);
+        /* flag the current cache chunk as dirty */
+        $this->cache_dirty = true;
+
+
+        if ($offset + $data_size >= $chunk_size) {
+            $wrote += $chunk_size - $offset;
+            if ($wrote > 0) {
+                $cache  = substr($cache, 0, $offset);
+                $cache .= substr($data, 0, $wrote);
+            }
             $cache_size    = strlen($cache);
-            $this->offset += $chunk_size -  $cache_size;
+            $this->offset += $wrote;
 
             /* Move to the next chunk, stream_seek */
             /* will automatically sync it to mongodb */
@@ -590,8 +599,10 @@ class MongoFS
                 throw new MongoException("Offset falied");
             }
 
-            $data      = substr($data, $wrote);
-            $data_size = strlen($data);
+            if ($wrote > 0) {
+                $data      = substr($data, $wrote);
+                $data_size = strlen($data);
+            }
         }
 
         if ($data_size > 0) {
@@ -606,9 +617,6 @@ class MongoFS
         if($offset > $cache_size) {
             $cache_size = $offset;
         }
-
-        /* flag the current cache as dirty */
-        $this->cache_dirty = true;
 
         return $wrote;
     }

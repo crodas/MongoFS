@@ -40,32 +40,37 @@ require "MongoFS.php";
 /* Ejemplo */
 MongoFS::connect("mongofs", "localhost");
 
+define("RAND_OPERATIONS", 30000);
 
 try {
     $localfile  = generate_test_file();
     $remotefile = "gridfs://testing.bin";
     $tmpfile    = tempnam("/tmp/", "mongofs");
 
-    print "Uploading file to MongoDB\n\t";
+    print "Uploading file to MongoDB\n";
     do_stream_copy($localfile, $remotefile);
-    print "OK\n";
+    print "\tOK\n";
 
-    print "Downloading file\n\t";
+    print "Downloading file\n";
     do_stream_copy($remotefile, $tmpfile);
-    print "OK\n";
+    print "\tOK\n";
 
-    print "Comparing local and remote files\n\t";
-    echo stream_cmp($tmpfile, $remotefile) ? "OK\n" : "FAILED\n";
+    print "Comparing local and remote files\n";
+    stream_cmp($tmpfile, $localfile);
+    print "\tOK\n";
 
-    print "Random reading\n\t";
-    echo partial_reading($localfile, $remotefile) ? "OK\n" : "FAILED\n";
 
-    print "Random writing\n\t";
-    echo partial_writing($localfile, $remotefile) ? "OK\n" : "FAILED\n";
+    print "Random reading\n";
+    partial_reading($tmpfile, $remotefile);
+    print "\tOK\n";
+
+    print "Random writing\n";
+    partial_writing($tmpfile, $remotefile);
+    print "\tOK\n";
 
 } catch (Exception $e) {
-    echo "FAILED\n";
-    echo "\t".$e->getMessage()."\n";
+    echo "\tFAILED:";
+    echo $e->getMessage()."\n";
 }
 
 /* delete files  */
@@ -73,6 +78,7 @@ unlink($remotefile);
 unlink($tmpfile);
 unlink($localfile);
 
+// bool partial_reading(string $file1, string $file2) {{{
 function partial_reading($file1, $file2)
 {
     $fi = fopen($file1, "r");
@@ -80,7 +86,7 @@ function partial_reading($file1, $file2)
 
     $max = filesize($file1);
 
-    for ($i=0; $i < 3000; $i++) {
+    for ($i=0; $i < RAND_OPERATIONS; $i++) {
         /* random offset */
         $offset = rand(0, $max);
         fseek($fp, $offset, SEEK_SET);
@@ -91,15 +97,15 @@ function partial_reading($file1, $file2)
         $data1 = fread($fp, $bytes);
         $data2 = fread($fi, $bytes);
         if ($data1 !== $data2) {
-            return false;
+            throw new Exception("File mismatch at position $offset");
         }
     }
     fclose($fp);
     fclose($fi);
-
-    return true;
 }
+// }}}
 
+// bool partial_writing(string $file1, string $file2) {{{
 function partial_writing($file1, $file2)
 {
     $fi = fopen($file1, "r+");
@@ -107,14 +113,17 @@ function partial_writing($file1, $file2)
 
     $max = filesize($file1);
 
-    for ($i=0; $i < 5000; $i++) {
+    for ($i=0; $i < RAND_OPERATIONS; $i++) {
         /* random offset */
-        $offset = rand(0, $max+100); 
+        $offset = rand(0, $max); 
         fseek($fp, $offset, SEEK_SET);
         fseek($fi, $offset, SEEK_SET);
        
         /* random data */
-        $data = sha1(microtime(),false);
+        $data  = strtoupper(sha1(microtime()));
+        $data .= strtoupper(sha1(microtime()));
+
+        fseek($fi, $offset, SEEK_SET);
 
         fwrite($fi, $data);
         fwrite($fp, $data);
@@ -123,40 +132,42 @@ function partial_writing($file1, $file2)
     fclose($fp);
     fclose($fi);
 
-    echo "Comparing remote and local files: ";
-
     return stream_cmp($file1, $file2);
 }
+// }}}
 
-function stream_cmp($file1, $file2, $exhaustive=false)
+// bool stream_cmp($file1, $file2, $bytes) {{{
+function stream_cmp($file1, $file2, $bytes = 8096)
 {
+    if (filesize($file1) != filesize($file2)) {
+        throw new Exception("file size mismatch");
+    }
+
     $f1 = fopen($file1, "r");
     $f2 = fopen($file2, "r");
-
-    $bytes = $exhaustive ? 1 : 8096;
 
     while (!feof($f2) && !feof($f1)) {
         $data2 = fread($f2, $bytes);
         $data1 = fread($f1, $bytes);
-        if ($data1 != $data2) {
-            throw new Exception("File mismatch at ".ftell($f1).", ".ftell($f2));
+        if ($data1 !== $data2) {
+            for ($i=0; $i < $bytes; $i++) {
+                if ($data1[$i] != $data2[$i]) {
+                    break;
+                }
+            }
+            throw new exception("File mismatch at position ".(ftell($f1)+$i));
         }
     }
 
-    return feof($f2) === feof($f1);
-}
-
-function do_stream_copy($source, $dest) 
-{
-    $fi = fopen($source, "r");
-    $fp = fopen($dest, "w");
-    while ($data = fread($fi, 7000)) {
-        fwrite($fp, $data);
+    if (feof($f2) !== feof($f1)) {
+        throw new Exception("Unexpected offset error");
     }
-    fclose($fp);
-    fclose($fi);
+    fclose($f2);
+    fclose($f1);
 }
+// }}}
 
+// string generate_test_file() {{{
 function generate_test_file()
 {
     echo "Creating random file\n\t";
@@ -165,14 +176,15 @@ function generate_test_file()
     if (!$fp) {
         throw new Exception("Error while creating testing file");
     }
-    $size =rand(40000, 800000);
+    $size =rand(40000, 1000000);
     for ($i=0; $i < $size; $i++) {
-        fwrite($fp, sha1(($i * $size), false));
+        fwrite($fp, sha1(($i * $size)));
     }
     fclose($fp);
     echo "Done\n";
     return $fname;
 }
+// }}}
 
 /*
  * Local variables:
