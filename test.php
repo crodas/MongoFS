@@ -78,6 +78,20 @@ unlink($remotefile);
 unlink($tmpfile);
 unlink($localfile);
 
+// do_stream_copy($source, $dest) {{{
+function do_stream_copy($source, $dest)
+{
+    $f1 = fopen($source, "r");
+    $f2 = fopen($dest, "w");
+
+    while ($data = fread($f1, 8096)) {
+        fwrite($f2, $data);
+    }
+    fclose($f1);
+    fclose($f2);
+}
+// }}}
+
 // bool partial_reading(string $file1, string $file2) {{{
 function partial_reading($file1, $file2)
 {
