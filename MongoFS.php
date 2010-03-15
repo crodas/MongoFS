@@ -313,14 +313,13 @@ class MongoFS
             return false;
         }
 
-
         $filename = substr($filename, $pos + 3);
 
         if ($filename[0] != '/') {
             $filename = "/{$filename}";
         }
 
-        $filter   = array(
+        $filter = array(
             'filename' => $filename
         );
 
@@ -363,6 +362,7 @@ class MongoFS
         $this->size      = $attr->file['length'];
         $this->chunk_size = $attr->file['chunkSize'];
         $this->file_id   = $attr->file['_id'];
+
 
         /* load grid and chunks references */
         $this->grid     = $grid;
@@ -583,7 +583,6 @@ class MongoFS
         /* flag the current cache chunk as dirty */
         $this->cache_dirty = true;
 
-
         if ($offset + $data_size >= $chunk_size) {
             $wrote += $chunk_size - $offset;
             if ($wrote > 0) {
@@ -602,6 +601,8 @@ class MongoFS
             if ($wrote > 0) {
                 $data      = substr($data, $wrote);
                 $data_size = strlen($data);
+                /* The new chunk must be flagged as dirty */
+                $this->cache_dirty = true;
             }
         }
 

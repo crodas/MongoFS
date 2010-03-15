@@ -137,24 +137,25 @@ function partial_writing($file1, $file2)
         $data  = strtoupper(sha1(microtime()));
         $data .= strtoupper(sha1(microtime()));
 
-        fseek($fi, $offset, SEEK_SET);
-
         fwrite($fi, $data);
         fwrite($fp, $data);
+
     }
 
     fclose($fp);
     fclose($fi);
 
-    return stream_cmp($file1, $file2);
+    return stream_cmp($file1, $file2, 50);
 }
 // }}}
 
 // bool stream_cmp($file1, $file2, $bytes) {{{
 function stream_cmp($file1, $file2, $bytes = 8096)
 {
-    if (filesize($file1) != filesize($file2)) {
-        throw new Exception("file size mismatch");
+    $size1 = filesize($file1);
+    $size2 = filesize($file2);
+    if ($size1 != $size2) {
+        throw new Exception("file size mismatch {$size1} != {$size2}");
     }
 
     $f1 = fopen($file1, "r");
@@ -169,12 +170,17 @@ function stream_cmp($file1, $file2, $bytes = 8096)
                     break;
                 }
             }
+            var_dump(array($data1, $data2));
             throw new exception("File mismatch at position ".(ftell($f1)+$i));
         }
     }
 
     if (feof($f2) !== feof($f1)) {
-        throw new Exception("Unexpected offset error");
+        var_dump("Unexpected offset error");
+        //throw new Exception("Unexpected offset error");
+    }
+    if (sha1_file($file1) !== sha1_file($file2)) {
+        throw new Exception("SHA1 mismatch");
     }
     fclose($f2);
     fclose($f1);
@@ -190,7 +196,7 @@ function generate_test_file()
     if (!$fp) {
         throw new Exception("Error while creating testing file");
     }
-    $size =rand(40000, 1000000);
+    $size = rand(40000, 1000000);
     for ($i=0; $i < $size; $i++) {
         fwrite($fp, sha1(($i * $size)));
     }
