@@ -71,6 +71,23 @@ class MongoFS
      *  @type string
      */
     private static $_host;
+
+ 	/**
+     *  User (Auth)
+     *
+     *  @type string
+     */
+    private static $_user;
+
+        /**
+     *  Password (Auth)
+     *
+     *  @type string
+     */
+    private static $_pwd;
+
+
+
     // }}}
 
     /* file metadata */
@@ -111,10 +128,13 @@ class MongoFS
      *
      *  @return void
      */
-    final public static function connect($db, $host='localhost')
+    final public static function connect($db, $host='localhost', $user = null, $pwd=null)
     {
         self::$_host = $host;
         self::$_db   = $db;
+     	self::$_user = $user;
+        self::$_pwd   = $pwd;
+
     }
     // }}}
 
@@ -137,6 +157,13 @@ class MongoFS
         $dbname = self::$_db;
         if (!isSet(self::$_dbs[$dbname])) {
             self::$_dbs[$dbname] = self::$_conn->selectDB($dbname);
+        }
+
+        if ( !is_null(self::$_user ) &&   !is_null(self::$_pwd )  ) {
+        	
+         	self::$_dbs[$dbname]->authenticate(	self::$_user,self::$_pwd ) ;
+
+
         }
         return self::$_dbs[$dbname];
     }
